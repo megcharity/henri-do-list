@@ -771,10 +771,16 @@ async function pastGo(){
 
     const team=[d.host_desk&&'Host: '+d.host_desk,d.bar&&'Bar: '+d.bar,d.team_lead&&'TL: '+d.team_lead,d.servers&&'Servers: '+d.servers,d.server_assts&&'SAs: '+d.server_assts].filter(Boolean).join(' · ')||null;
 
+    // Store snapshot for resend
+    window._pastReportSnap = { date, data: d };
+
     body.innerHTML='<div style="background:var(--white);border:1.5px solid var(--border);border-radius:12px;overflow:hidden;">'
-      +'<div style="background:var(--red);padding:14px 18px;">'
+      +'<div style="background:var(--red);padding:14px 18px;display:flex;justify-content:space-between;align-items:center;">'
+      +'<div>'
       +'<div style="font-size:15px;font-weight:500;color:#efe8df;font-family:Cormorant Garamond,serif;">'+fmtDate(date)+'</div>'
       +'<div style="font-size:12px;color:rgba(239,232,223,.6);">'+(d.manager_name||'—')+(d.shift_start?' · '+d.shift_start:'')+(d.shift_end?' – '+d.shift_end:'')+'</div>'
+      +'</div>'
+      +'<button id="past-resend-btn" onclick="pastResendEmail()" style="padding:7px 14px;background:rgba(239,232,223,.18);border:1.5px solid rgba(239,232,223,.45);border-radius:7px;color:#efe8df;font-family:inherit;font-size:12px;font-weight:600;cursor:pointer;">📧 Resend Email</button>'
       +'</div>'
       +'<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(90px,1fr));gap:8px;padding:12px 16px;background:var(--cream-dk);">'
       +mets.map(([l,v])=>'<div style="text-align:center;"><div style="font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:rgba(25,34,46,.38);margin-bottom:2px;">'+l+'</div><div style="font-size:16px;font-weight:500;color:var(--navy);font-family:Cormorant Garamond,serif;">'+(v||'—')+'</div></div>').join('')
@@ -792,6 +798,101 @@ async function pastGo(){
       +rr('Closing notes',lv('shift_notes'))
       +'</div></div>';
   }catch(e){body.innerHTML='<div style="padding:24px;text-align:center;color:rgba(192,57,43,.5);">Failed to load.</div>';}
+}
+
+// RESEND EMAIL FOR A PAST REPORT
+async function pastResendEmail() {
+  const snap = window._pastReportSnap;
+  if (!snap) { toast('No report loaded'); return; }
+  const btn = document.getElementById('past-resend-btn');
+  if (btn) { btn.textContent = '⏳ Sending...'; btn.disabled = true; }
+  try {
+    // Temporarily swap srData so srEmail() uses the past report's data
+    const prevData = srData;
+    srData = snap.data;
+    // Patch srEmail to use the past date label
+    const prevFmt = window._pastFmtOverride;
+    window._pastFmtOverride = snap.date;
+    await srEmailForDate(snap.date);
+    window._pastFmtOverride = prevFmt;
+    srData = prevData;
+    if (btn) { btn.textContent = '✅ Sent!'; setTimeout(() => { if(btn){ btn.textContent = '📧 Resend Email'; btn.disabled = false; } }, 3000); }
+    toast('Report emailed ✅');
+  } catch(e) {
+    console.warn('Resend failed', e);
+    if (btn) { btn.textContent = '❌ Failed'; setTimeout(() => { if(btn){ btn.textContent = '📧 Resend Email'; btn.disabled = false; } }, 3000); }
+    toast('Email failed — check console');
+  }
+}
+
+async function srEmailForDate(date) {
+  const d = srData;
+  const dayLabel = fmtDate(date);
+  const food=parseFloat(d.food_sales||0),bev=parseFloat(d.bev_sales||0),total=food+bev;
+  const covers=parseFloat(d.covers||0),ppa=covers?total/covers:0;
+  const posC=parseFloat(d.pos_comps||0),negC=parseFloat(d.neg_comps||0);
+  const val=v=>v&&String(v).trim()&&String(v).trim()!=='—'?String(v).trim():null;
+  const rr=(l,v)=>v?'<tr><td style="padding:5px 0;font-size:13px;color:#888;width:150px;vertical-align:top;">'+l+'</td><td style="padding:5px 0;font-size:13px;color:#19222e;">'+v+'</td></tr>':'';
+  const sc=(l,v,dark)=>'<td style="text-align:center;padding:0 5px;"><div style="background:'+(dark?'#751919':'#e4dbd0')+';border-radius:8px;padding:10px 6px;">'
+    +'<div style="font-size:9px;text-transform:uppercase;letter-spacing:.08em;color:'+(dark?'rgba(239,232,223,.55)':'#19222e')+';margin-bottom:3px;">'+l+'</div>'
+    +'<div style="font-size:18px;font-weight:500;color:'+(dark?'#efe8df':'#19222e')+';">'+v+'</div></div></td>';
+
+  const team=[d.host_desk&&'Host: '+d.host_desk,d.bar&&'Bar: '+d.bar,d.team_lead&&'Team Lead: '+d.team_lead,d.servers&&'Servers: '+d.servers,d.server_assts&&'Server Assts: '+d.server_assts,d.staffing&&'Staffing: '+d.staffing].filter(Boolean).join(' &nbsp;·&nbsp; ');
+
+  let evHtml='';
+  for(let i=1;i<=(parseInt(d.num_events)||0);i++){
+    if(d['ev'+i+'_name']){
+      evHtml+='<div style="margin-top:8px;padding:10px;background:#f5f0e8;border-radius:6px;">'
+        +'<div style="font-size:12px;font-weight:700;color:#751919;margin-bottom:5px;">'+d['ev'+i+'_name']+(d['ev'+i+'_rating']?' · '+d['ev'+i+'_rating']+'/5':'')+'</div>'
+        +(d['ev'+i+'_well']?'<div style="font-size:12px;margin-bottom:3px;"><strong>Went well:</strong> '+d['ev'+i+'_well']+'</div>':'')
+        +(d['ev'+i+'_improve']?'<div style="font-size:12px;margin-bottom:3px;"><strong>Improve:</strong> '+d['ev'+i+'_improve']+'</div>':'')
+        +(d['ev'+i+'_poc']?'<div style="font-size:12px;"><strong>POC:</strong> '+d['ev'+i+'_poc']+'</div>':'')
+        +'</div>';
+    }
+  }
+
+  const html='<!DOCTYPE html><html><body style="margin:0;padding:0;background:#f0e8dc;font-family:Helvetica Neue,Arial,sans-serif;">'
+    +'<table width="100%" cellpadding="0" cellspacing="0" style="background:#f0e8dc;padding:24px 0;"><tr><td align="center">'
+    +'<table width="600" cellpadding="0" cellspacing="0" style="background:#fff;border-radius:12px;overflow:hidden;max-width:600px;">'
+    +'<tr><td style="background:#751919;padding:28px 32px;text-align:center;">'
+    +'<div style="font-size:11px;letter-spacing:.18em;color:rgba(239,232,223,.5);text-transform:uppercase;margin-bottom:6px;">Henrietta\'s</div>'
+    +'<div style="font-size:26px;font-weight:500;color:#efe8df;margin-bottom:4px;">Shift Report</div>'
+    +'<div style="font-size:13px;color:rgba(239,232,223,.6);">'+dayLabel+'</div>'
+    +'</td></tr>'
+    +'<tr><td style="background:#e4dbd0;padding:16px 32px;border-bottom:1px solid #d4ccc4;">'
+    +'<div style="font-size:10px;letter-spacing:.1em;text-transform:uppercase;color:#19222e;opacity:.45;margin-bottom:10px;">Night Summary</div>'
+    +'<table width="100%" cellpadding="0" cellspacing="0"><tr>'
+    +sc('Covers',covers?covers.toFixed(0):'—',false)
+    +sc('Food',food?'$'+food.toFixed(0):'—',false)
+    +sc('Bev',bev?'$'+bev.toFixed(0):'—',false)
+    +sc('Total',total?'$'+total.toFixed(0):'—',true)
+    +(ppa?sc('PPA','$'+ppa.toFixed(2),false):'')
+    +'</tr></table></td></tr>'
+    +'<tr><td style="padding:24px 32px 28px;">'
+    +'<div style="border-left:3px solid #751919;padding-left:14px;">'
+    +'<div style="font-size:11px;letter-spacing:.14em;text-transform:uppercase;color:#751919;margin-bottom:2px;">Manager</div>'
+    +'<div style="font-size:16px;font-weight:500;color:#19222e;margin-bottom:14px;">'+(val(d.manager_name)||'—')+(val(d.shift_start)?' &nbsp;·&nbsp; '+val(d.shift_start):'')+(val(d.shift_end)?' – '+val(d.shift_end):'')+'</div>'
+    +'<table cellpadding="0" cellspacing="0">'
+    +rr('Peak times',val(d.peak_times))
+    +(team?rr('Team',team):'')
+    +rr('Coaching',val(d.coaching))
+    +((posC||negC)?rr('Comps',[posC?'+$'+posC.toFixed(2):null,negC?'-$'+negC.toFixed(2):null].filter(Boolean).join(' &nbsp;·&nbsp; ')):'')
+    +rr('+ Comp notes',val(d.pos_comp_notes))
+    +rr('- Comp notes',val(d.neg_comp_notes))
+    +((val(d.eighty_food)||val(d.eighty_bar))?rr("86'd",[val(d.eighty_food)&&'Food: '+val(d.eighty_food),val(d.eighty_bar)&&'Bar: '+val(d.eighty_bar)].filter(Boolean).join(' · ')):'')
+    +rr('R&M',val(d.rm_issues))
+    +rr('Closing notes',val(d.shift_notes))
+    +'</table>'
+    +(evHtml?'<div style="margin-top:12px;">'+evHtml+'</div>':'')
+    +'</div></td></tr>'
+    +'<tr><td style="background:#e4dbd0;padding:14px 32px;text-align:center;border-top:1px solid #d4ccc4;">'
+    +'<div style="font-size:11px;color:#999;">Henrietta\'s &nbsp;·&nbsp; Charlotte, NC &nbsp;·&nbsp; Internal use only</div>'
+    +'</td></tr></table></td></tr></table></body></html>';
+
+  await emailjs.send('service_yuz9zab','template_0nxwpkt',{
+    subject:'Shift Report — '+dayLabel+' · Henrietta\'s',
+    message:html,
+  });
 }
 
 // BOOT
