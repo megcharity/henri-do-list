@@ -550,7 +550,7 @@ async function srEmail(){
     +'</td></tr></table></td></tr></table></body></html>';
 
   await emailjs.send('service_yuz9zab','template_n2xzx8o',{
-    subject:'Shift Report — '+dayLabel+' · Henrietta\'s',
+    subject:'Henrietta\'s Shift Report - '+dayLabel,
     message:html,
   });
 }
@@ -890,7 +890,7 @@ async function srEmailForDate(date) {
     +'</td></tr></table></td></tr></table></body></html>';
 
   await emailjs.send('service_yuz9zab','template_n2xzx8o',{
-    subject:'Shift Report — '+dayLabel+' · Henrietta\'s',
+    subject:'Henrietta\'s Shift Report - '+dayLabel,
     message:html,
   });
 }
